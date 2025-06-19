@@ -8,3 +8,4 @@ google-generativeai
 anthropic
 requests
 xlrd
+chardet  
