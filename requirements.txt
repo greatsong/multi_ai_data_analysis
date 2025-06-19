@@ -4,3 +4,4 @@ openai
 openpyxl
 claude
 gemini
+plotly
