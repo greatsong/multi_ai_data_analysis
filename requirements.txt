@@ -1,7 +1,10 @@
-streamlit
 pandas
 openai
 openpyxl
-claude
-gemini
 plotly
+pandas
+openpyxl
+google-generativeai
+anthropic
+requests
+xlrd
