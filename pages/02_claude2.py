@@ -7,6 +7,7 @@ from io import StringIO, BytesIO
 import json
 import base64
 from datetime import datetime
+import chardet  # 인코딩 감지용
 
 # OpenAI
 try:
@@ -46,34 +47,63 @@ if 'generated_code' not in st.session_state:
 # AI 모델 설정
 def get_ai_response(prompt, api_key, model_type, model_name):
     try:
+        if not api_key:
+            return "API 키가 입력되지 않았습니다. 사이드바에서 API 키를 입력해주세요."
+            
         if model_type == "OpenAI" and OpenAI:
-            client = OpenAI(api_key=api_key)
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7
-            )
-            return response.choices[0].message.content
+            try:
+                client = OpenAI(api_key=api_key)
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                    timeout=30  # 30초 타임아웃
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                if "api_key" in str(e).lower():
+                    return "OpenAI API 키가 유효하지 않습니다. 올바른 키인지 확인해주세요."
+                elif "connection" in str(e).lower():
+                    return "OpenAI 서버 연결 오류입니다. 잠시 후 다시 시도해주세요."
+                else:
+                    return f"OpenAI 오류: {str(e)}"
             
         elif model_type == "Gemini" and genai:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            return response.text
+            try:
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                return response.text
+            except Exception as e:
+                if "api_key" in str(e).lower() or "API_KEY_INVALID" in str(e):
+                    return "Gemini API 키가 유효하지 않습니다. 올바른 키인지 확인해주세요."
+                elif "connection" in str(e).lower():
+                    return "Gemini 서버 연결 오류입니다. 잠시 후 다시 시도해주세요."
+                else:
+                    return f"Gemini 오류: {str(e)}"
             
         elif model_type == "Claude" and Anthropic:
-            client = Anthropic(api_key=api_key)
-            response = client.messages.create(
-                model=model_name,
-                max_tokens=4000,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return response.content[0].text
+            try:
+                client = Anthropic(api_key=api_key)
+                response = client.messages.create(
+                    model=model_name,
+                    max_tokens=4000,
+                    messages=[{"role": "user", "content": prompt}],
+                    timeout=30  # 30초 타임아웃
+                )
+                return response.content[0].text
+            except Exception as e:
+                if "api_key" in str(e).lower() or "authentication" in str(e).lower():
+                    return "Claude API 키가 유효하지 않습니다. 올바른 키인지 확인해주세요."
+                elif "connection" in str(e).lower():
+                    return "Claude 서버 연결 오류입니다. 잠시 후 다시 시도해주세요."
+                else:
+                    return f"Claude 오류: {str(e)}"
             
     except Exception as e:
-        return f"오류 발생: {str(e)}"
+        return f"예상치 못한 오류 발생: {str(e)}"
     
-    return "선택한 AI 모델의 라이브러리가 설치되지 않았습니다."
+    return f"{model_type}의 라이브러리가 설치되지 않았습니다. requirements.txt를 확인해주세요."
 
 # 데이터 분석 함수
 def analyze_data(df):
@@ -88,10 +118,11 @@ def analyze_data(df):
     return analysis
 
 # 파일 다운로드 함수
-def get_download_link(df, filename, file_format='csv'):
+def get_download_link(df, filename, file_format='csv', encoding='utf-8-sig'):
     if file_format == 'csv':
-        csv = df.to_csv(index=False)
-        b64 = base64.b64encode(csv.encode()).decode()
+        # utf-8-sig는 엑셀에서 한글이 깨지지 않도록 BOM을 추가
+        csv = df.to_csv(index=False, encoding=encoding)
+        b64 = base64.b64encode(csv.encode(encoding)).decode()
         mime = 'text/csv'
     else:  # excel
         output = BytesIO()
@@ -160,7 +191,8 @@ openpyxl
 xlsxwriter
 openai
 google-generativeai
-anthropic"""
+anthropic
+chardet"""
         st.code(requirements, language="text")
         st.info("위 내용을 복사하여 requirements.txt 파일에 붙여넣으세요")
 
@@ -197,15 +229,25 @@ with tab1:
                         continue
                 
                 if df is None:
-                    # 모든 인코딩 실패시 사용자에게 선택하도록 함
-                    st.error("자동 인코딩 감지 실패")
+                    # 더 정교한 인코딩 감지
+                    uploaded_file.seek(0)
+                    raw_data = uploaded_file.read()
+                    detected = chardet.detect(raw_data)
+                    
+                    st.warning(f"자동 인코딩 감지 결과: {detected['encoding']} (신뢰도: {detected['confidence']:.1%})")
+                    
                     encoding_choice = st.selectbox(
                         "인코딩을 직접 선택해주세요:",
-                        ['utf-8', 'cp949', 'euc-kr', 'latin1', 'utf-16']
+                        ['cp949', 'euc-kr', 'utf-8', 'latin1', 'utf-16'],
+                        index=0 if detected['encoding'] in ['cp949', 'euc-kr'] else 2
                     )
                     if st.button("선택한 인코딩으로 다시 시도"):
                         uploaded_file.seek(0)
-                        df = pd.read_csv(uploaded_file, encoding=encoding_choice)
+                        try:
+                            df = pd.read_csv(uploaded_file, encoding=encoding_choice)
+                            st.success(f"✅ {encoding_choice} 인코딩으로 파일을 읽었습니다.")
+                        except Exception as e:
+                            st.error(f"선택한 인코딩으로도 실패: {str(e)}")
             else:
                 # Excel 파일은 일반적으로 인코딩 문제가 없음
                 df = pd.read_excel(uploaded_file)
@@ -291,8 +333,43 @@ with tab1:
                         st.success("전처리가 완료되었습니다!")
                         st.dataframe(df_processed.head())
                         
+                        # 다운로드 옵션
+                        st.subheader("📥 다운로드 옵션")
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            file_format = st.selectbox("파일 형식", ["CSV", "Excel"])
+                        
+                        with col2:
+                            if file_format == "CSV":
+                                encoding_option = st.selectbox(
+                                    "인코딩", 
+                                    ["utf-8-sig (권장)", "cp949", "euc-kr"],
+                                    help="utf-8-sig는 엑셀에서 한글이 깨지지 않습니다"
+                                )
+                                encoding_map = {
+                                    "utf-8-sig (권장)": "utf-8-sig",
+                                    "cp949": "cp949",
+                                    "euc-kr": "euc-kr"
+                                }
+                                selected_encoding = encoding_map[encoding_option]
+                            else:
+                                selected_encoding = None
+                        
+                        with col3:
+                            filename = st.text_input("파일명", value="processed_data")
+                        
                         # 다운로드 링크
-                        st.markdown(get_download_link(df_processed, "processed_data.csv"), unsafe_allow_html=True)
+                        if file_format == "CSV":
+                            st.markdown(
+                                get_download_link(df_processed, f"{filename}.csv", "csv", selected_encoding), 
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            st.markdown(
+                                get_download_link(df_processed, f"{filename}.xlsx", "excel"), 
+                                unsafe_allow_html=True
+                            )
                         
         except Exception as e:
             st.error(f"파일 읽기 오류: {str(e)}")
