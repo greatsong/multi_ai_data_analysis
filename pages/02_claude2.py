@@ -179,13 +179,40 @@ with tab1:
     
     if uploaded_file is not None:
         try:
-            # 파일 읽기
+            # 파일 읽기 with 인코딩 자동 감지
             if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
+                # CSV 파일의 인코딩 자동 감지
+                encodings = ['utf-8', 'cp949', 'euc-kr', 'latin1']
+                df = None
+                
+                for encoding in encodings:
+                    try:
+                        uploaded_file.seek(0)  # 파일 포인터 초기화
+                        df = pd.read_csv(uploaded_file, encoding=encoding)
+                        st.success(f"✅ 파일을 {encoding} 인코딩으로 성공적으로 읽었습니다.")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                    except Exception as e:
+                        continue
+                
+                if df is None:
+                    # 모든 인코딩 실패시 사용자에게 선택하도록 함
+                    st.error("자동 인코딩 감지 실패")
+                    encoding_choice = st.selectbox(
+                        "인코딩을 직접 선택해주세요:",
+                        ['utf-8', 'cp949', 'euc-kr', 'latin1', 'utf-16']
+                    )
+                    if st.button("선택한 인코딩으로 다시 시도"):
+                        uploaded_file.seek(0)
+                        df = pd.read_csv(uploaded_file, encoding=encoding_choice)
             else:
+                # Excel 파일은 일반적으로 인코딩 문제가 없음
                 df = pd.read_excel(uploaded_file)
+                st.success("✅ Excel 파일을 성공적으로 읽었습니다.")
             
-            st.session_state.df = df
+            if df is not None:
+                st.session_state.df = df
             
             # 데이터 미리보기
             st.subheader("📋 데이터 미리보기")
