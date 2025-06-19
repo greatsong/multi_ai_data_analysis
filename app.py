@@ -81,7 +81,8 @@ if submit and user_input:
     st.session_state.messages.append({"role": "user", "content": context + user_input})
 
     with st.spinner("분석 중…"):
-        resp = openai.ChatCompletion.create(
+        # 새로운 API 방식 사용
+        resp = openai.chat.completions.create(
             model=model,
             messages=st.session_state.messages,
             temperature=0.2,
